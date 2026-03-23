@@ -3,6 +3,7 @@
 ## ChroMapper plugin
 
 Display BeatLeader Pass, Tech, Acc and Star rating for the full map and for an average of notes while mapping  
+Also display Linear %, Multi-Notes rating, Peak Sustained EBPM, Crouch Wall Action, Dodge Wall Action and Bomb Avoidance count  
 
 ### How to install
 Download the latest release here: https://github.com/Loloppe/ChroMapper_Ratings/releases/latest  
