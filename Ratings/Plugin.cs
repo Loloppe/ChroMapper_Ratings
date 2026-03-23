@@ -1,5 +1,5 @@
-﻿using beatleader_analyzer;
-using beatleader_analyzer.BeatmapScanner.Data;
+﻿using Analyzer.BeatmapScanner.Data;
+using beatleader_analyzer;
 using beatleader_parser;
 using Newtonsoft.Json;
 using Parser.Map;
@@ -26,6 +26,8 @@ namespace Ratings
 
         private const int EditorSceneBuildIndex = 3;
         private const int PollIntervalMilliseconds = 1000; // poll interval
+        private const double PASS_CALIBRATION_FACTOR = 0.825;
+        private const double BALANCED_TECH_SCALER = 14.0;
 
         private static readonly Parse Parser = new();
         private static readonly Analyze Analyzer = new();
@@ -41,7 +43,7 @@ namespace Ratings
         public SongTimelineController? _songTimeLineController;
         private MapEditorUI? _mapEditorUI;
 
-        private List<beatleader_analyzer.BeatmapScanner.Data.Ratings> AnalyzerData = new();
+        public beatleader_analyzer.BeatmapScanner.Data.Ratings AnalyzerData = new();
         private List<NoteAcc> AccAiData = new();
 
         public double PredictedAcc = 0f;
@@ -113,16 +115,14 @@ namespace Ratings
                 if (_noteGridContainer.MapObjects.Count >= 20)
                 {
                     AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, map.Info._beatsPerMinute, Config.Timescale);
-                    var data = AnalyzerData.FirstOrDefault();
-                    if (data != null)
+                    if (AnalyzerData != null)
                     {
-                        Tech = data.Tech * 10;
-                        Pass = data.Pass;
+                        Tech = AnalyzerData.TechRating;
+                        Pass = AnalyzerData.PassRating;
                         PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
                         Acc = AccRating.GetRating(PredictedAcc, Pass, Tech);
-                        Acc *= data.Nerf;
-                        List<Point> pointList = Curve.GetCurve(PredictedAcc, Acc);
-                        Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech, pointList);
+                        Acc *= AnalyzerData.LowNoteNerf;
+                        Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech);
                     }
                     AccAiData = PerNote.PredictHitsForMapNotes(diff, _beatSaberSongContainer.Info.BeatsPerMinute, _beatSaberSongContainer.MapDifficultyInfo.NoteJumpSpeed, Config.Timescale);
                     _ui.ApplyNewValues();
@@ -159,16 +159,14 @@ namespace Ratings
             if (_noteGridContainer.MapObjects.Count >= 20)
             {
                 AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, map.Info._beatsPerMinute, Config.Timescale);
-                var data = AnalyzerData.FirstOrDefault();
-                if (data != null)
+                if (AnalyzerData != null)
                 {
-                    Tech = data.Tech * 10;
-                    Pass = data.Pass;
+                    Tech = AnalyzerData.TechRating;
+                    Pass = AnalyzerData.PassRating;
                     PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
                     Acc = AccRating.GetRating(PredictedAcc, Pass, Tech);
-                    Acc *= data.Nerf;
-                    List<Point> pointList = Curve.GetCurve(PredictedAcc, Acc);
-                    Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech, pointList);
+                    Acc *= AnalyzerData.LowNoteNerf;
+                    Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech);
                 }
                 AccAiData = PerNote.PredictHitsForMapNotes(diff, _beatSaberSongContainer.Info.BeatsPerMinute, _beatSaberSongContainer.MapDifficultyInfo.NoteJumpSpeed, Config.Timescale);
                 _ui.ApplyNewValues();
@@ -203,8 +201,7 @@ namespace Ratings
             float time = _audioTimeSyncController.CurrentSongBpmTime;
             float seconds = _audioTimeSyncController.CurrentSeconds;
 
-            beatleader_analyzer.BeatmapScanner.Data.Ratings data = AnalyzerData.FirstOrDefault();
-            List<PerSwing> timeData = data.PerSwing.Where(x => x.Time >= time).Take(Config.NotesCount).ToList();
+            List<SwingData> timeData = AnalyzerData.SwingData.Where(x => x.BpmTime >= time).Take(Config.NotesCount).ToList();
             List<NoteAcc> accData = AccAiData.Where(x => x.time >= seconds).Take(Config.NotesCount).ToList();
             if (timeData.Count <= 1 || accData.Count <= 1)
             {
@@ -212,17 +209,16 @@ namespace Ratings
                 return;
             }
 
-            double avgPassRating = timeData.Average(x => x.Pass);
-            double avgTechRating = timeData.Average(x => x.Tech);
+            double swingDiff = timeData.Average(x => x.SwingDiff) * PASS_CALIBRATION_FACTOR;
+            double swingTech = timeData.Average(x => x.SwingTech) * BALANCED_TECH_SCALER;
             double avgAcc = accData.Average(x => x.acc);
 
-            double accRating = AccRating.GetRating(avgAcc, avgPassRating, avgTechRating);
-            List<Point> pointList = Curve.GetCurve(avgAcc, accRating);
-            double star = Curve.ToStars(Config.StarAccuracy, accRating, avgPassRating, avgTechRating, pointList);
+            double accRating = AccRating.GetRating(avgAcc, swingDiff, swingTech);
+            double star = Curve.ToStars(Config.StarAccuracy, accRating, swingDiff, swingTech);
             
             Label.text = "Data from next " + timeData.Count.ToString("F2") + " notes ->" +
-                " Pass: " + Math.Round(avgPassRating, 3).ToString("F3") +
-                " Tech: " + Math.Round(avgTechRating, 3).ToString("F3") +
+                " Pass: " + Math.Round(swingDiff, 3).ToString("F3") +
+                " Tech: " + Math.Round(swingTech, 3).ToString("F3") +
                 " Acc: " + Math.Round(accRating, 3).ToString("F3") + 
                 " Star: " + Math.Round(star, 3).ToString("F3");
         }

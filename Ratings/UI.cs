@@ -38,7 +38,7 @@ namespace Ratings
             _ratingsMenu = new GameObject("Ratings Menu");
             _ratingsMenu.transform.parent = parent.transform;
 
-            AttachTransform(_ratingsMenu, 300, 140, 1, 1, 0, 0, 1, 1);
+            AttachTransform(_ratingsMenu, 320, 200, 1, 1, 0, 0, 1, 1);
 
             Image image = _ratingsMenu.AddComponent<Image>();
             image.sprite = PersistentUI.Instance.Sprites.Background;
@@ -68,7 +68,13 @@ namespace Ratings
             }, false, true, "AI predicted accuracy %");
             AddTextInput(_ratingsMenu.transform, "Acc", "Acc", new Vector2(-110, -115), System.Math.Round(_ratings.Acc, 3).ToString(), (value) =>
             {
-            }, false, true);
+            }, false, true, "Based on how hard it is to acc the map");
+            AddTextInput(_ratingsMenu.transform, "Linear", "Linear %", new Vector2(-110, -145), System.Math.Round(_ratings.AnalyzerData.LinearPercentage * 100, 1).ToString(), (value) =>
+            {
+            }, false, true, "How much of the map has linear swings");
+            AddTextInput(_ratingsMenu.transform, "CrouchWalls", "Crouch", new Vector2(-110, -175), _ratings.AnalyzerData.Statistics.CrouchWalls.ToString(), (value) =>
+            {
+            }, false, true, "Crouch wall action count");
 
             // Column 2
             AddLabel(_ratingsMenu.transform, "Enable", "Enable Plugin", new Vector2(-10, -25));
@@ -81,10 +87,17 @@ namespace Ratings
             });
             AddTextInput(_ratingsMenu.transform, "StarRating", "Star", new Vector2(-20, -85), System.Math.Round(_ratings.Star, 3).ToString(), (value) =>
             {
-            }, false, true);
+            }, false, true, "Display value based on Pass, Tech and Acc rating");
             AddTextInput(_ratingsMenu.transform, "Tech", "Tech", new Vector2(-20, -115), System.Math.Round(_ratings.Tech, 3).ToString(), (value) =>
             {
-            }, false, true);
+            }, false, true, "Rotation, repositioning and swing strain");
+            AddTextInput(_ratingsMenu.transform, "MultiNotes", "Multi N.", new Vector2(-20, -145), System.Math.Round(_ratings.AnalyzerData.MultiRating, 3).ToString(), (value) =>
+            {
+            }, false, true, "Value based on how much multi-notes hits there is in the map");
+            AddTextInput(_ratingsMenu.transform, "DodgeWalls", "Dodge", new Vector2(-20, -175), _ratings.AnalyzerData.Statistics.DodgeWalls.ToString(), (value) =>
+            {
+            }, false, true, "Dodge wall action count");
+
 
             // Column 3
             AddTextInput(_ratingsMenu.transform, "Timescale", "Timescale", new Vector2(80, -25), _ratings.Config.Timescale.ToString(), (value) =>
@@ -116,7 +129,14 @@ namespace Ratings
             }, true, false, "Accuracy used to calculate Star Rating");
             AddTextInput(_ratingsMenu.transform, "Pass", "Pass", new Vector2(80, -115), System.Math.Round(_ratings.Pass, 3).ToString(), (value) =>
             {
-            }, false, true);
+            }, false, true, "Difficulty of the map");
+            AddTextInput(_ratingsMenu.transform, "P. EBPM", "P. EBPM", new Vector2(80, -145), System.Math.Round(_ratings.AnalyzerData.PeakSustainedEBPM, 3).ToString(), (value) =>
+            {
+            }, false, true, "Peak Sustained EBPM (4 notes per hand)");
+            AddTextInput(_ratingsMenu.transform, "BombAvoidances", "Bomb Av.", new Vector2(80, -175), _ratings.AnalyzerData.Statistics.BombAvoidances.ToString(), (value) =>
+            {
+            }, false, true, "Bomb Avoidance count");
+
 
             _extensionBtn.Click = () =>
             {

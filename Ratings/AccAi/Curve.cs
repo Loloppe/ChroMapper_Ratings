@@ -6,7 +6,7 @@ namespace Ratings.AccAi
 {
     internal class Curve
     {
-        public List<(double x, double y)> baseCurve = new()
+        public static List<(double x, double y)> pointList2 = new()
         {
                 (1.0, 7.424),
                 (0.999, 6.241),
@@ -41,25 +41,14 @@ namespace Ratings.AccAi
                 (0.6, 0.256),
                 (0.0, 0.000)};
 
-        public List<Point> GetCurve(double predictedAcc, double accRating)
-        {
-            List<(double x, double y)> points = baseCurve.ToList();
-
-            Point point = new();
-            List<Point> curve = point.ToPoints(points).ToList();
-            curve = curve.OrderBy(x => x.x).Reverse().ToList();
-
-            return curve;
-        }
-
-        public double ToStars(double acc, double accRating, double passRating, double techRating, List<Point> curve)
+        public static double ToStars(double acc, double accRating, double passRating, double techRating)
         {
             double passPP = 15.2f * MathF.Exp(MathF.Pow((float)passRating, 1 / 2.62f)) - 30f;
             if (double.IsInfinity(passPP) || double.IsNaN(passPP) || double.IsNegativeInfinity(passPP) || passPP < 0)
             {
                 passPP = 0;
             }
-            double accPP = Curve2(acc, curve) * accRating * 34f;
+            double accPP = Curve2(acc) * accRating * 34f;
             double techPP = MathF.Exp((float)(1.9 * acc)) * 1.08f * techRating;
 
             double pp = 650f * MathF.Pow((float)(passPP + accPP + techPP), 1.3f) / MathF.Pow(650f, 1.3f);
@@ -67,12 +56,12 @@ namespace Ratings.AccAi
             return pp / 52;
         }
 
-        public double Curve2(double acc, List<Point> curve)
+        public static double Curve2(double acc)
         {
             int i = 0;
-            for (; i < curve.Count; i++)
+            for (; i < pointList2.Count; i++)
             {
-                if (curve[i].x <= acc)
+                if (pointList2[i].Item1 <= acc)
                 {
                     break;
                 }
@@ -83,8 +72,8 @@ namespace Ratings.AccAi
                 i = 1;
             }
 
-            double middle_dis = (acc - curve[i - 1].x) / (curve[i].x - curve[i - 1].x);
-            return (float)(curve[i - 1].y + middle_dis * (curve[i].y - curve[i - 1].y));
+            double middle_dis = (acc - pointList2[i - 1].Item1) / (pointList2[i].Item1 - pointList2[i - 1].Item1);
+            return (float)(pointList2[i - 1].Item2 + middle_dis * (pointList2[i].Item2 - pointList2[i - 1].Item2));
         }
     }
 }
