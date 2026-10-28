@@ -91,7 +91,7 @@ namespace Ratings
             AddTextInput(_ratingsMenu.transform, "Tech", "Tech", new Vector2(-20, -115), System.Math.Round(_ratings.Tech, 3).ToString(), (value) =>
             {
             }, false, true, "Rotation, repositioning and swing strain");
-            AddTextInput(_ratingsMenu.transform, "MultiNotes", "Multi N.", new Vector2(-20, -145), System.Math.Round(_ratings.AnalyzerData.MultiRating, 3).ToString(), (value) =>
+            AddTextInput(_ratingsMenu.transform, "MultiNotes", "Multi N.", new Vector2(-20, -145), System.Math.Round(_ratings.AnalyzerData.MultiPercentage, 3).ToString(), (value) =>
             {
             }, false, true, "Value based on how much multi-notes hits there is in the map");
             AddTextInput(_ratingsMenu.transform, "DodgeWalls", "Dodge", new Vector2(-20, -175), _ratings.AnalyzerData.Statistics.DodgeWalls.ToString(), (value) =>

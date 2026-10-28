@@ -1,52 +1,66 @@
 ﻿using System;
-using System.Collections.Generic;
 
 namespace Ratings.AccAi
 {
+    // Same as RatingAPI's AccRating (portaBLerebalancer2), see the comments there for where the constants come from.
     public class AccRating
     {
-        public List<(double, double)> PointList { get; set; } = new()
-        {
-                (1.0, 7.424),
-                (0.999, 6.241),
-                (0.9975, 5.158),
-                (0.995, 4.010),
-                (0.9925, 3.241),
-                (0.99, 2.700),
-                (0.9875, 2.303),
-                (0.985, 2.007),
-                (0.9825, 1.786),
-                (0.98, 1.618),
-                (0.9775, 1.490),
-                (0.975, 1.392),
-                (0.9725, 1.315),
-                (0.97, 1.256),
-                (0.965, 1.167),
-                (0.96, 1.101),
-                (0.955, 1.047),
-                (0.95, 1.000),
-                (0.94, 0.919),
-                (0.93, 0.847),
-                (0.92, 0.786),
-                (0.91, 0.734),
-                (0.9, 0.692),
-                (0.875, 0.606),
-                (0.85, 0.537),
-                (0.825, 0.480),
-                (0.8, 0.429),
-                (0.75, 0.345),
-                (0.7, 0.286),
-                (0.65, 0.246),
-                (0.6, 0.217),
-                (0.0, 0.000)
-        };
+        // acc rating = ACC_SCALE x Curve(EffectiveAcc(predictedAcc, pass, hit distance) + ACC_OFFSET) ^ -ACC_EXPONENT
+        public const double ACC_SCALE = 13.5382;
+        public const double ACC_EXPONENT = 0.8222;
+        public const double ACC_OFFSET = 0.0019;
 
-        public double GetRating(double? predictedAcc, double? passRating, double? techRating)
+        // Hard map correction: below HARD_MAP_KNEE predicted acc, the acc rating uses a predicted acc lowered by
+        // HARD_MAP_SLOPE times the distance below the knee, capped at HARD_MAP_FLOOR
+        public const double HARD_MAP_KNEE = 0.9675;
+        public const double HARD_MAP_SLOPE = 1.24;
+        public const double HARD_MAP_FLOOR = 0.95;
+
+        // Movement and high pass corrections: -3% acc per meter of mean hit distance above 0.62 m (capped at 0.8 m, phased
+        // out between 97% and 97.5% predicted acc), and -0.214% per pass point above 14.52
+        public const double HIT_DISTANCE_KNEE = 0.62;
+        public const double HIT_DISTANCE_SLOPE = 0.030;
+        public const double HIT_DISTANCE_CAP = 0.80;
+        public const double HIT_DISTANCE_FULL_BELOW = 0.97;
+        public const double HIT_DISTANCE_NONE_ABOVE = 0.975;
+        public const double HIGH_PASS_KNEE = 14.52;
+        public const double HIGH_PASS_SLOPE = 0.00214;
+
+        // Very high pass buff: HIGH_PASS_BUFF less effective acc from HIGH_PASS_BUFF_FULL pass, ramped in linearly from
+        // HIGH_PASS_BUFF_START
+        public const double HIGH_PASS_BUFF_START = 13.5;
+        public const double HIGH_PASS_BUFF_FULL = 14.5;
+        public const double HIGH_PASS_BUFF = 0.0055;
+
+        // The predicted acc the acc rating uses (see the corrections above). passRating: the pass rating; hitDistance:
+        // Ratings.HitDistance. 0 leaves that correction out.
+        public static double EffectiveAcc(double predictedAcc, double passRating = 0, double hitDistance = 0) =>
+            predictedAcc - HARD_MAP_SLOPE * Math.Max(0, HARD_MAP_KNEE - Math.Max(predictedAcc, HARD_MAP_FLOOR))
+            - HIT_DISTANCE_SLOPE * Math.Max(0, Math.Min(hitDistance, HIT_DISTANCE_CAP) - HIT_DISTANCE_KNEE)
+                * Math.Clamp((HIT_DISTANCE_NONE_ABOVE - predictedAcc) / (HIT_DISTANCE_NONE_ABOVE - HIT_DISTANCE_FULL_BELOW), 0, 1)
+            - HIGH_PASS_SLOPE * Math.Max(0, passRating - HIGH_PASS_KNEE)
+            - HIGH_PASS_BUFF * Math.Clamp((passRating - HIGH_PASS_BUFF_START) / (HIGH_PASS_BUFF_FULL - HIGH_PASS_BUFF_START), 0, 1);
+
+        // Hard swing correction: the acc rating is multiplied by 1 + HARD_SWING_SLOPE x the excess of (ratio - 1) x pass over
+        // HARD_SWING_KNEE, up to HARD_SWING_CAP. One hand maps (ratio 0) aren't changed.
+        public const double HARD_SWING_KNEE = 2.0;
+        public const double HARD_SWING_SLOPE = 0.02;
+        public const double HARD_SWING_CAP = 0.12;
+
+        // The hard swing correction's multiplier of the acc rating. hardSwingRatio: Ratings.HardSwingRatio (0: none)
+        public static double HardSwingMultiplier(double passRating, double hardSwingRatio) =>
+            hardSwingRatio > 0
+                ? 1 + Math.Min(HARD_SWING_SLOPE * Math.Max(0, (hardSwingRatio - 1) * passRating - HARD_SWING_KNEE), HARD_SWING_CAP)
+                : 1;
+
+        public double GetRating(double? predictedAcc, double? passRating, double? techRating, double hitDistance = 0, double hardSwingRatio = 0)
         {
             double difficulty_to_acc;
             if (predictedAcc > 0)
             {
-                difficulty_to_acc = 15.5f / Curve((predictedAcc ?? 0) + 0.0022f);
+                double effective = EffectiveAcc(predictedAcc ?? 0, passRating ?? 0, hitDistance);
+                difficulty_to_acc = ACC_SCALE * Math.Pow(Curve(predictedAcc ?? 0, effective + ACC_OFFSET), -ACC_EXPONENT)
+                    * HardSwingMultiplier(passRating ?? 0, hardSwingRatio);
             }
             else
             {
@@ -60,24 +74,7 @@ namespace Ratings.AccAi
             return difficulty_to_acc;
         }
 
-        public float Curve(double acc)
-        {
-            int i = 0;
-            for (; i < PointList.Count; i++)
-            {
-                if (PointList[i].Item1 <= acc)
-                {
-                    break;
-                }
-            }
-
-            if (i == 0)
-            {
-                i = 1;
-            }
-
-            double middle_dis = (acc - PointList[i - 1].Item1) / (PointList[i].Item1 - PointList[i - 1].Item1);
-            return (float)(PointList[i - 1].Item2 + middle_dis * (PointList[i].Item2 - PointList[i - 1].Item2));
-        }
+        // The map's own per-map acc curve (picked by its predicted acc, see Curve.GetCurve) at acc
+        public static float Curve(double predictedAcc, double acc) => (float)AccAi.Curve.PerMapValue(predictedAcc, acc);
     }
 }

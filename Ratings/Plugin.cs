@@ -26,13 +26,13 @@ namespace Ratings
 
         private const int EditorSceneBuildIndex = 3;
         private const int PollIntervalMilliseconds = 1000; // poll interval
-        private const double PASS_CALIBRATION_FACTOR = 0.825;
-        private const double BALANCED_TECH_SCALER = 14.0;
+        // Same as the Analyzer's AnalyzeMap
+        private const double PASS_CALIBRATION_FACTOR = 0.7721;
+        private const double BALANCED_TECH_SCALER = 20.611;
 
         private static readonly Parse Parser = new();
         private static readonly Analyze Analyzer = new();
         private static readonly AccRating AccRating = new();
-        private static readonly Curve Curve = new();
 
         private readonly PerNote PerNote = new();
         private readonly Full Full = new();
@@ -51,6 +51,8 @@ namespace Ratings
         public double Tech = 0f;
         public double Pass = 0f;
         public double Star = 0f;
+        public double SliderPercentage = 0f;
+        public List<(double x, double y)> PointList = new();
 
         public Config Config = new();
         public TextMeshProUGUI Label;
@@ -114,16 +116,7 @@ namespace Ratings
                 
                 if (_noteGridContainer.MapObjects.Count >= 20)
                 {
-                    AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, map.Info._beatsPerMinute, Config.Timescale);
-                    if (AnalyzerData != null)
-                    {
-                        Tech = AnalyzerData.TechRating;
-                        Pass = AnalyzerData.PassRating;
-                        PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
-                        Acc = AccRating.GetRating(PredictedAcc, Pass, Tech);
-                        Acc *= AnalyzerData.LowNoteNerf;
-                        Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech);
-                    }
+                    CalculateRatings(diff, characteristic, difficulty, map.Info._beatsPerMinute);
                     AccAiData = PerNote.PredictHitsForMapNotes(diff, _beatSaberSongContainer.Info.BeatsPerMinute, _beatSaberSongContainer.MapDifficultyInfo.NoteJumpSpeed, Config.Timescale);
                     _ui.ApplyNewValues();
                     _initialized = true;
@@ -158,16 +151,7 @@ namespace Ratings
 
             if (_noteGridContainer.MapObjects.Count >= 20)
             {
-                AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, map.Info._beatsPerMinute, Config.Timescale);
-                if (AnalyzerData != null)
-                {
-                    Tech = AnalyzerData.TechRating;
-                    Pass = AnalyzerData.PassRating;
-                    PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
-                    Acc = AccRating.GetRating(PredictedAcc, Pass, Tech);
-                    Acc *= AnalyzerData.LowNoteNerf;
-                    Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech);
-                }
+                CalculateRatings(diff, characteristic, difficulty, map.Info._beatsPerMinute);
                 AccAiData = PerNote.PredictHitsForMapNotes(diff, _beatSaberSongContainer.Info.BeatsPerMinute, _beatSaberSongContainer.MapDifficultyInfo.NoteJumpSpeed, Config.Timescale);
                 _ui.ApplyNewValues();
                 _initialized = true;
@@ -176,6 +160,31 @@ namespace Ratings
             {
                 Debug.LogError("Ratings require 20 or more notes to analyze the map. Current note count: " + _noteGridContainer.MapObjects.Count);
             }
+        }
+
+        private void CalculateRatings(DifficultyV3 diff, string characteristic, string difficulty, float bpm)
+        {
+            AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, bpm, Config.Timescale);
+            if (AnalyzerData == null)
+            {
+                return;
+            }
+
+            Tech = AnalyzerData.TechRating;
+            Pass = AnalyzerData.PassRating;
+            PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
+            Acc = AccRating.GetRating(PredictedAcc, Pass, Tech, AnalyzerData.HitDistance, AnalyzerData.HardSwingRatio);
+            // Per-map curve (by predicted acc, slider tilt, low note and length nerf); the stars use it
+            SliderPercentage = Curve.SliderPercentage(AnalyzerData);
+            PointList = Curve.GetCurve(PredictedAcc, SliderPercentage, diff.Notes.Count, NoteSpan(diff, Config.Timescale));
+            Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech, PointList);
+        }
+
+        // First to last color note of a difficulty in real time: song seconds / timescale
+        private static double NoteSpan(DifficultyV3 mapdata, double timescale)
+        {
+            if (mapdata.Notes.Count < 2 || timescale <= 0) return 0;
+            return (mapdata.Notes.Max(n => n.Seconds) - mapdata.Notes.Min(n => n.Seconds)) / timescale;
         }
 
         private async Task FindObject()
@@ -210,11 +219,12 @@ namespace Ratings
             }
 
             double swingDiff = timeData.Average(x => x.SwingDiff) * PASS_CALIBRATION_FACTOR;
-            double swingTech = timeData.Average(x => x.SwingTech) * BALANCED_TECH_SCALER;
+            double swingTech = BALANCED_TECH_SCALER * Math.Pow(timeData.Average(x => x.SwingTech) * beatleader_analyzer.BeatmapScanner.Data.Ratings.TechPassFactor(swingDiff), beatleader_analyzer.BeatmapScanner.Data.Ratings.TechExponent);
+            double hitDistance = timeData.Average(x => x.HitDistance);
             double avgAcc = accData.Average(x => x.acc);
 
-            double accRating = AccRating.GetRating(avgAcc, swingDiff, swingTech);
-            double star = Curve.ToStars(Config.StarAccuracy, accRating, swingDiff, swingTech);
+            double accRating = AccRating.GetRating(avgAcc, swingDiff, swingTech, hitDistance);
+            double star = Curve.ToStars(Config.StarAccuracy, accRating, swingDiff, swingTech, Curve.GetCurve(avgAcc, SliderPercentage, 0, 0));
             
             Label.text = "Data from next " + timeData.Count.ToString("F2") + " notes ->" +
                 " Pass: " + Math.Round(swingDiff, 3).ToString("F3") +

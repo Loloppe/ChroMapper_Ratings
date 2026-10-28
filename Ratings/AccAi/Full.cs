@@ -24,7 +24,8 @@ namespace Ratings.AccAi
             public PredictedNote[] Notes { get; set; }
         }
 
-        private const int BatchSize = 4;
+        // Windows per ONNX call: each call has a fixed cost (the results are the same, every window is predicted on its own)
+        private const int BatchSize = 512;
         private const int NumThreads = 4;
         private const int preSegmentSize = 12;
         private const int postSegmentSize = 12;
@@ -32,6 +33,11 @@ namespace Ratings.AccAi
 
         private static object inferenceSessionLock = new();
         private static InferenceSession inferenceSessionAccNew = new InferenceSession(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "model_sleep_bl.onnx"), new Microsoft.ML.OnnxRuntime.SessionOptions { IntraOpNumThreads = NumThreads, ExecutionMode = ExecutionMode.ORT_SEQUENTIAL });
+
+        public Full()
+        {
+            DataProcessing.ConfigureFor(inferenceSessionAccNew);
+        }
 
         public int GetMultiplierForCombo(int combo)
         {
@@ -94,10 +100,11 @@ namespace Ratings.AccAi
             float[] flatInput = input.SelectMany(v => v.SelectMany(v => v.Select(v => (float)v))).ToArray();
             var modelInput = new List<NamedOnnxValue>
             {
-                NamedOnnxValue.CreateFromTensor("input_1", new DenseTensor<float>(flatInput, new int[] { input.Length, 32, 49 })),
+                NamedOnnxValue.CreateFromTensor("input_1", new DenseTensor<float>(flatInput, new int[] { input.Length, DataProcessing.segmentSize, DataProcessing.noteSize })),
             };
 
-            var outputs = new float[input.Length, 8];
+            int predictionSize = DataProcessing.predictionSize;
+            var outputs = new float[input.Length, predictionSize];
 
             lock (inferenceSessionLock)
             {
@@ -111,8 +118,8 @@ namespace Ratings.AccAi
             var listOutputs = new List<float[]>();
             for (int i = 0; i < input.Length; ++i)
             {
-                var output = new float[8];
-                for (int j = 0; j < 8; ++j)
+                var output = new float[predictionSize];
+                for (int j = 0; j < predictionSize; ++j)
                 {
                     output[j] = outputs[i, j];
                 }
@@ -152,9 +159,10 @@ namespace Ratings.AccAi
                 for (int j = 0; j < batchPred.Length; j++)
                 {
                     var pred = batchPred[j];
-                    var inp = batchInp.Skip(DataProcessing.preSegmentSize).Take(batchInp.Count - DataProcessing.preSegmentSize - DataProcessing.preSegmentSize).ToArray()[0];
+                    // Skip the empty padding slots at the end of the last window
+                    var inp = batchInp[DataProcessing.preSegmentSize + j];
 
-                    if (inp.Sum() == 0.0)
+                    if (inp.All(v => v == 0.0))
                     {
                         continue;
                     }
