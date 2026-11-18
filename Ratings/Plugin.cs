@@ -27,8 +27,8 @@ namespace Ratings
         private const int EditorSceneBuildIndex = 3;
         private const int PollIntervalMilliseconds = 1000; // poll interval
         // Same as the Analyzer's AnalyzeMap
-        private const double PASS_CALIBRATION_FACTOR = 0.7721;
-        private const double BALANCED_TECH_SCALER = 20.611;
+        private const double PASS_CALIBRATION_FACTOR = 0.6917;
+        private const double BALANCED_TECH_SCALER = 6.0;
 
         private static readonly Parse Parser = new();
         private static readonly Analyze Analyzer = new();
@@ -52,7 +52,7 @@ namespace Ratings
         public double Pass = 0f;
         public double Star = 0f;
         public double SliderPercentage = 0f;
-        public List<(double x, double y)> PointList = new();
+        public List<System.Numerics.Vector2> PointList = new();
 
         public Config Config = new();
         public TextMeshProUGUI Label;
@@ -164,27 +164,24 @@ namespace Ratings
 
         private void CalculateRatings(DifficultyV3 diff, string characteristic, string difficulty, float bpm)
         {
-            AnalyzerData = Analyzer.GetRating(diff, characteristic, difficulty, bpm, Config.Timescale);
-            if (AnalyzerData == null)
+            // As RatingAPI rates it (with a speed modifier: blended with the nomod ratings)
+            var (result, ratings) = RatingsController.Rate(Analyzer, Full, diff, characteristic, difficulty, bpm, Config.Timescale);
+            if (ratings == null)
             {
                 return;
             }
 
-            Tech = AnalyzerData.TechRating;
-            Pass = AnalyzerData.PassRating;
-            PredictedAcc = Full.GetAIAcc(diff, _beatSaberSongContainer.Info.BeatsPerMinute, Config.Timescale);
-            Acc = AccRating.GetRating(PredictedAcc, Pass, Tech, AnalyzerData.HitDistance, AnalyzerData.HardSwingRatio);
+            AnalyzerData = ratings;
+            var lack = result.LackMapCalculation;
+            Tech = lack.TechRating;
+            Pass = lack.PassRating;
+            PredictedAcc = result.PredictedAcc;
+            Acc = result.AccRating;
+            SliderPercentage = lack.SliderPercentage;
             // Per-map curve (by predicted acc, slider tilt, low note and length nerf); the stars use it
-            SliderPercentage = Curve.SliderPercentage(AnalyzerData);
-            PointList = Curve.GetCurve(PredictedAcc, SliderPercentage, diff.Notes.Count, NoteSpan(diff, Config.Timescale));
-            Star = Curve.ToStars(Config.StarAccuracy, Acc, Pass, Tech, PointList);
-        }
-
-        // First to last color note of a difficulty in real time: song seconds / timescale
-        private static double NoteSpan(DifficultyV3 mapdata, double timescale)
-        {
-            if (mapdata.Notes.Count < 2 || timescale <= 0) return 0;
-            return (mapdata.Notes.Max(n => n.Seconds) - mapdata.Notes.Min(n => n.Seconds)) / timescale;
+            PointList = PpCalculator.ToCurve(result.PointList);
+            Star = Config.StarAccuracy == PpCalculator.StarAccuracy ? result.Stars
+                : PpCalculator.ToStars(Config.StarAccuracy, (float)Acc, (float)Pass, (float)Tech, PointList, (float)PredictedAcc);
         }
 
         private async Task FindObject()
@@ -219,12 +216,13 @@ namespace Ratings
             }
 
             double swingDiff = timeData.Average(x => x.SwingDiff) * PASS_CALIBRATION_FACTOR;
-            double swingTech = BALANCED_TECH_SCALER * Math.Pow(timeData.Average(x => x.SwingTech) * beatleader_analyzer.BeatmapScanner.Data.Ratings.TechPassFactor(swingDiff), beatleader_analyzer.BeatmapScanner.Data.Ratings.TechExponent);
+            double swingTech = BALANCED_TECH_SCALER * timeData.Average(x => x.SwingTech) * beatleader_analyzer.BeatmapScanner.Data.Ratings.TechPassFactor(swingDiff);
             double hitDistance = timeData.Average(x => x.HitDistance);
             double avgAcc = accData.Average(x => x.acc);
 
             double accRating = AccRating.GetRating(avgAcc, swingDiff, swingTech, hitDistance);
-            double star = Curve.ToStars(Config.StarAccuracy, accRating, swingDiff, swingTech, Curve.GetCurve(avgAcc, SliderPercentage, 0, 0));
+            var curve = PpCalculator.ToCurve(new Curve().GetCurve(new LackMapCalculation { SliderPercentage = SliderPercentage }, avgAcc));
+            double star = PpCalculator.ToStars(Config.StarAccuracy, (float)accRating, (float)swingDiff, (float)swingTech, curve, (float)avgAcc);
             
             Label.text = "Data from next " + timeData.Count.ToString("F2") + " notes ->" +
                 " Pass: " + Math.Round(swingDiff, 3).ToString("F3") +

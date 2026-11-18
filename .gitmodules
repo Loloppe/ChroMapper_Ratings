@@ -1,0 +1,4 @@
+[submodule "SubModule/beatleader-analyzer"]
+	path = SubModule/beatleader-analyzer
+	url = https://github.com/BeatLeader/beatleader-analyzer.git
+	branch = dev
